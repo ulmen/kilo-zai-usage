@@ -20,14 +20,19 @@ type QuotaData = {
   level?: string
 }
 
+type Window = {
+  pct: number
+  resetMs: number
+}
+
 type State =
   | { status: "loading" }
   | { status: "error"; message: string }
   | {
       status: "ready"
       level: string
-      pct: number
-      resetMs: number
+      fiveHour?: Window
+      weekly?: Window
       mcpUsed: number
       mcpTotal: number
     }
@@ -71,14 +76,23 @@ async function fetchQuota(key: string, baseUrl: string, signal: AbortSignal): Pr
   return json.data
 }
 
+// z.ai encodes the window length as unit + number: unit 3 = hours, unit 6 = weeks.
+function findTokenWindow(limits: Limit[] | undefined, unit: number, number: number): Window | undefined {
+  const limit = limits?.find((l) => l.type === "TOKENS_LIMIT" && l.unit === unit && l.number === number)
+  if (!limit || typeof limit.percentage !== "number") return undefined
+  return { pct: limit.percentage, resetMs: limit.nextResetTime ?? 0 }
+}
+
+// Empty when the API gives no reset time (e.g. right after the window rolled over).
 function fmtReset(resetMs: number): string {
-  if (!resetMs) return "?"
+  if (!resetMs) return ""
   const ms = resetMs - Date.now()
   if (ms <= 0) return "now"
   const min = Math.round(ms / 60_000)
   if (min < 60) return `${min}m`
   const h = Math.floor(min / 60)
-  return `${h}h${String(min % 60).padStart(2, "0")}m`
+  if (h < 24) return `${h}h${String(min % 60).padStart(2, "0")}m`
+  return `${Math.floor(h / 24)}d${String(h % 24).padStart(2, "0")}h`
 }
 
 // Solid's universal renderer has no h(tag, props, children): build the node the way
@@ -108,17 +122,18 @@ export default {
         const signal = disposed ? AbortSignal.any([disposed, timeout]) : timeout
         const key = await readApiKey()
         const data = await fetchQuota(key, baseUrl, signal)
-        const tokens = data.limits?.find((l) => l.type === "TOKENS_LIMIT")
+        const fiveHour = findTokenWindow(data.limits, 3, 5)
+        const weekly = findTokenWindow(data.limits, 6, 1)
         const mcp = data.limits?.find((l) => l.type === "TIME_LIMIT")
-        if (!tokens || tokens.percentage === undefined) {
+        if (!fiveHour && !weekly) {
           setState({ status: "error", message: "no token limit in response" })
           return
         }
         setState({
           status: "ready",
           level: data.level ?? "",
-          pct: tokens.percentage,
-          resetMs: tokens.nextResetTime ?? 0,
+          fiveHour,
+          weekly,
           mcpUsed: mcp?.currentValue ?? 0,
           mcpTotal: mcp?.usage ?? 0,
         })
@@ -134,8 +149,11 @@ export default {
     const timer = setInterval(() => void refresh(), pollMs)
     api?.lifecycle?.onDispose(() => clearInterval(timer))
 
-    const pctColor = (ctx: any, pct: number) =>
-      pct >= 85 ? ctx.theme.current.error : pct >= 60 ? ctx.theme.current.warning : ctx.theme.current.text
+    // Color by whichever window is closer to its limit.
+    const pctColor = (ctx: any, s: { fiveHour?: Window; weekly?: Window }) => {
+      const pct = Math.max(s.fiveHour?.pct ?? 0, s.weekly?.pct ?? 0)
+      return pct >= 85 ? ctx.theme.current.error : pct >= 60 ? ctx.theme.current.warning : ctx.theme.current.text
+    }
 
     api.slots.register({
       slots: {
@@ -144,17 +162,31 @@ export default {
           if (s.status === "loading") return text(ctx.theme.current.textMuted, "z.ai …")
           if (s.status === "error")
             return text(ctx.theme.current.error, `z.ai usage unavailable: ${s.message}`)
-          const plan = s.level ? `z.ai ${s.level}` : "z.ai"
-          return text(
-            pctColor(ctx, s.pct),
-            `${plan} · 5h ${s.pct}% · reset ${fmtReset(s.resetMs)} · mcp ${s.mcpUsed}/${s.mcpTotal}`,
-          )
+          const parts = [s.level ? `z.ai ${s.level}` : "z.ai"]
+          if (s.fiveHour) {
+            parts.push(`5h ${s.fiveHour.pct}%`)
+            const reset = fmtReset(s.fiveHour.resetMs)
+            if (reset) parts.push(`reset ${reset}`)
+          }
+          if (s.weekly) {
+            const reset = fmtReset(s.weekly.resetMs)
+            parts.push(reset ? `week ${s.weekly.pct}% (${reset})` : `week ${s.weekly.pct}%`)
+          }
+          parts.push(`mcp ${s.mcpUsed}/${s.mcpTotal}`)
+          return text(pctColor(ctx, s), parts.join(" · "))
         },
         session_prompt_right: (ctx: any) => {
           const s = state()
           if (s.status === "loading") return text(ctx.theme.current.textMuted, "z.ai …")
           if (s.status === "error") return null
-          return text(pctColor(ctx, s.pct), `z.ai ${s.pct}% · ${fmtReset(s.resetMs)}`)
+          const parts = ["z.ai"]
+          if (s.fiveHour) {
+            const reset = fmtReset(s.fiveHour.resetMs)
+            parts[0] += ` ${s.fiveHour.pct}%`
+            if (reset) parts.push(reset)
+          }
+          if (s.weekly) parts.push(`wk ${s.weekly.pct}%`)
+          return text(pctColor(ctx, s), parts.join(" · "))
         },
       },
     })

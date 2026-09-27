@@ -10,16 +10,17 @@ A [Kilo Code CLI](https://kilo.ai) TUI plugin that shows your **z.ai GLM Coding 
   - Plan tier (`lite` / `pro` / `max`)
   - 5-hour rolling window usage, in percent
   - Time remaining until the 5-hour window resets
+  - Weekly quota and its reset time, on plans that have one: `week 18% (3d04h)`
   - Monthly MCP tool quota (Web Search / Web Reader / Zread)
 - **Two placement points**:
   - Home screen status line (footer)
   - Compact indicator next to the prompt during active sessions: `z.ai 42% · 1h33m`
-- **Color thresholds** — normal below 60%, warning at 60%+, error at 85%+ of the 5-hour window
+- **Color thresholds** — normal below 60%, warning at 60%+, error at 85%+ of the 5-hour or weekly window, whichever is higher
 - **No extra credentials** — reuses the API key already configured in Kilo
 
 ### Color thresholds
 
-| 5-hour usage | Status line |
+| Usage        | Status line |
 | ------------ | ----------- |
 | below 60%    | ![normal](assets/footer-normal.png) |
 | 60–84%       | ![warning](assets/footer-warning.png) |
