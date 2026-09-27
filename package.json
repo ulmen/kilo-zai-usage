@@ -1,0 +1,17 @@
+{
+  "name": "kilo-zai-usage",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Show z.ai GLM Coding Plan quota in the Kilo Code CLI status line",
+  "author": "Alex Vidchinin <ulmen.ua@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ulmen/kilo-zai-usage.git"
+  },
+  "keywords": ["kilo", "kilo-code", "z.ai", "glm", "coding-plan", "tui", "plugin"],
+  "files": ["tui.ts"],
+  "exports": {
+    "./tui": "./tui.ts"
+  }
+}
